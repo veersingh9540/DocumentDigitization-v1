@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -22,7 +26,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install boto3 pytest pytest-cov
+          pip install boto3 pytest pytest-cov moto psycopg2-binary python-dateutil
           if [ -f src/lambda/document_processor/requirements.txt ]; then pip install -r src/lambda/document_processor/requirements.txt; fi
           if [ -f src/lambda/dashboard_api/requirements.txt ]; then pip install -r src/lambda/dashboard_api/requirements.txt; fi
           
@@ -48,11 +52,6 @@ jobs:
         with:
           terraform_version: 1.5.7
         
-      - name: Terraform Format Check
-        run: |
-          cd terraform
-          terraform fmt -check || echo "Warning: Terraform files are not formatted."
-        
       - name: Terraform Init
         id: init
         run: |
@@ -72,7 +71,7 @@ jobs:
           terraform plan -no-color -out=tfplan
           
       - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2
         with:
           name: terraform-plan
           path: terraform/tfplan
@@ -97,7 +96,7 @@ jobs:
           terraform_version: 1.5.7
         
       - name: Download Terraform Plan
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v2
         with:
           name: terraform-plan
           path: terraform
@@ -105,31 +104,25 @@ jobs:
       - name: Terraform Apply
         run: |
           cd terraform
+          terraform init
           terraform apply -auto-approve tfplan
-          
-      - name: Get Terraform Outputs
-        id: terraform-outputs
-        run: |
-          cd terraform
-          echo "DOCUMENT_PROCESSOR_FUNCTION=$(terraform output -raw lambda_document_processor_name)" >> $GITHUB_ENV
-          echo "DASHBOARD_API_FUNCTION=$(terraform output -raw lambda_dashboard_api_name)" >> $GITHUB_ENV
-          echo "S3_BUCKET=$(terraform output -raw s3_bucket_name)" >> $GITHUB_ENV
-          echo "EC2_IP=$(terraform output -raw ec2_instance_public_ip)" >> $GITHUB_ENV
           
       - name: Package Lambda Functions
         run: |
-          bash scripts/package_lambdas.sh
+          cd src/lambda/document_processor
+          pip install -r requirements.txt -t .
+          zip -r ../../../document_processor.zip .
+          
+          cd ../dashboard_api
+          pip install -r requirements.txt -t .
+          zip -r ../../../dashboard_api.zip .
           
       - name: Deploy Lambda Functions
         run: |
           aws lambda update-function-code \
-            --function-name ${{ env.DOCUMENT_PROCESSOR_FUNCTION }} \
+            --function-name document-processor \
             --zip-file fileb://document_processor.zip
             
           aws lambda update-function-code \
-            --function-name ${{ env.DASHBOARD_API_FUNCTION }} \
+            --function-name dashboard-api \
             --zip-file fileb://dashboard_api.zip
-            
-      - name: Deploy Dashboard App
-        run: |
-          aws s3 cp src/dashboard s3://${{ env.S3_BUCKET }}/app/ --recursive
