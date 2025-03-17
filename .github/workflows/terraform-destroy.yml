@@ -1,0 +1,65 @@
+name: Terraform Destroy
+
+# This workflow creates a "button" in GitHub Actions to destroy infrastructure
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to destroy (dev, staging, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      confirmation:
+        description: 'Type "destroy" to confirm infrastructure destruction'
+        required: true
+        type: string
+
+jobs:
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    # Only run if the confirmation is exactly "destroy"
+    if: ${{ github.event.inputs.confirmation == 'destroy' }}
+    
+    env:
+      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.5.0'
+          
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+          
+      - name: Terraform Init
+        run: terraform init
+      
+      - name: Terraform Workspace
+        run: |
+          terraform workspace select ${{ github.event.inputs.environment }} || terraform workspace new ${{ github.event.inputs.environment }}
+      
+      - name: Terraform Destroy Plan
+        run: terraform plan -destroy -out=destroy.tfplan
+      
+      - name: Terraform Destroy Confirmation
+        run: |
+          echo "👀 CAUTION! You are about to destroy infrastructure for environment: ${{ github.event.inputs.environment }}"
+          echo "This action will delete all resources managed by Terraform in this workspace."
+          echo "The destroy plan is available above. Review it carefully."
+          echo "To proceed with destruction, you've already confirmed by typing 'destroy'."
+      
+      - name: Terraform Apply Destroy
+        run: terraform apply destroy.tfplan

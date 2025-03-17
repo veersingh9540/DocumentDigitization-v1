@@ -1,136 +1,57 @@
-name: Deploy Document Processing Pipeline
+name: Terraform Deploy
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
-  id-token: write
+    branches: [ main, master ]
+    paths:
+      - '**.tf'
+      - '.github/workflows/terraform-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to (dev, staging, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
 
 jobs:
-  test:
+  terraform:
+    name: 'Terraform Deploy'
     runs-on: ubuntu-latest
+    
+    env:
+      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+    
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install boto3 pytest pytest-cov moto psycopg2-binary python-dateutil
-          if [ -f src/lambda/document_processor/requirements.txt ]; then pip install -r src/lambda/document_processor/requirements.txt; fi
-          if [ -f src/lambda/dashboard_api/requirements.txt ]; then pip install -r src/lambda/dashboard_api/requirements.txt; fi
-          
-      - name: Run tests
-        run: |
-          if [ -d tests ]; then pytest tests/ --cov=src; fi
-  
-  terraform-plan:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-          
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.7
-        
-      - name: Terraform Init
-        id: init
-        run: |
-          cd terraform
-          terraform init
-          
-      - name: Terraform Validate
-        id: validate
-        run: |
-          cd terraform
-          terraform validate -no-color
-          
-      - name: Terraform Plan
-        id: plan
-        run: |
-          cd terraform
-          terraform plan -no-color -out=tfplan
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        # or even better, use the latest:
-        # uses: actions/upload-artifact@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          name: your-artifact-name
-          path: path/to/artifact
+          terraform_version: '1.5.0'
           
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: terraform/tfplan
-  
-  deploy:
-    needs: terraform-plan
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: us-east-1
           
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.7
-        
-      - name: Download Terraform Plan
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan
-          path: terraform
-          
+      - name: Terraform Init
+        run: terraform init
+      
+      - name: Terraform Workspace
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
+          terraform workspace select $ENVIRONMENT || terraform workspace new $ENVIRONMENT
+      
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+      
       - name: Terraform Apply
-        run: |
-          cd terraform
-          terraform init
-          terraform apply -auto-approve tfplan
-          
-      - name: Package Lambda Functions
-        run: |
-          cd src/lambda/document_processor
-          pip install -r requirements.txt -t .
-          zip -r ../../../document_processor.zip .
-          
-          cd ../dashboard_api
-          pip install -r requirements.txt -t .
-          zip -r ../../../dashboard_api.zip .
-          
-      - name: Deploy Lambda Functions
-        run: |
-          aws lambda update-function-code \
-            --function-name document-processor \
-            --zip-file fileb://document_processor.zip
-            
-          aws lambda update-function-code \
-            --function-name dashboard-api \
-            --zip-file fileb://dashboard_api.zip
+        run: terraform apply tfplan
