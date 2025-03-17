@@ -1,17 +1,22 @@
 #!/bin/bash
+# Script to deploy dashboard app to EC2
 
-# Script to deploy dashboard app
-
-# Get S3 bucket name
-S3_BUCKET=$(aws cloudformation describe-stacks --stack-name document-processing-stack --query "Stacks[0].Outputs[?OutputKey=='S3BucketName'].OutputValue" --output text)
+# Get S3 bucket name and EC2 IP from Terraform output
+S3_BUCKET=$(cd terraform && terraform output -raw s3_bucket_name)
+EC2_IP=$(cd terraform && terraform output -raw ec2_instance_public_ip)
 
 # Upload dashboard app to S3
+echo "Uploading dashboard app to S3..."
 aws s3 cp src/dashboard s3://$S3_BUCKET/app/ --recursive
 
-# Get EC2 instance IP
-EC2_IP=$(aws cloudformation describe-stacks --stack-name document-processing-stack --query "Stacks[0].Outputs[?OutputKey=='EC2InstancePublicIP'].OutputValue" --output text)
-
-# Deploy dashboard app to EC2
-ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ec2-user@$EC2_IP "aws s3 cp s3://$S3_BUCKET/app/ /app/ --recursive && sudo systemctl restart dashboard"
+# SSH into EC2 instance and deploy app
+echo "Deploying dashboard app to EC2..."
+ssh -o StrictHostKeyChecking=no ec2-user@$EC2_IP << EOF
+    # Pull app from S3
+    aws s3 cp s3://$S3_BUCKET/app/ /app/ --recursive
+    
+    # Restart dashboard service
+    sudo systemctl restart dashboard
+EOF
 
 echo "Dashboard app deployed successfully!"

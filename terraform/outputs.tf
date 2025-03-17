@@ -3,9 +3,29 @@ output "s3_bucket_name" {
   value       = aws_s3_bucket.documents.bucket
 }
 
+output "rds_endpoint" {
+  description = "Endpoint of the RDS instance"
+  value       = aws_db_instance.postgres.endpoint
+}
+
+output "api_gateway_url" {
+  description = "URL of the API Gateway"
+  value       = aws_api_gateway_deployment.dashboard_api.invoke_url
+}
+
 output "ec2_instance_public_ip" {
   description = "Public IP address of the EC2 instance"
   value       = aws_eip.dashboard.public_ip
+}
+
+output "dashboard_url" {
+  description = "URL of the dashboard"
+  value       = "http://${aws_eip.dashboard.public_ip}"
+}
+
+output "pgadmin_url" {
+  description = "URL of pgAdmin"
+  value       = "http://${aws_eip.dashboard.public_ip}:8080"
 }
 
 output "lambda_document_processor_name" {
