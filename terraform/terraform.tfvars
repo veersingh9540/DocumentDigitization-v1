@@ -3,5 +3,7 @@ project_name = "dashboard"
 environment  = "dev"
 db_name      = "dashboard"
 db_username  = "postgres"
-db_password  = "password123" # Replace with a secure password or use AWS Secrets Manager
-ssh_key_name = "ssh-key"          # Replace with your SSH key name
+# Do not store actual password in this file
+# db_password will be provided via environment variable TF_VAR_db_password
+# or via GitHub Actions secrets
+ssh_key_name = "ssh-key" # Replace with your SSH key name

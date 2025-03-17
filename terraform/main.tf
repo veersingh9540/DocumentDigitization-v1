@@ -52,7 +52,11 @@ resource "aws_instance" "dashboard" {
   user_data = <<-EOF
               #!/bin/bash
               echo "Installing dashboard application"
-              # Your installation scripts here
+              apt-get update
+              apt-get install -y nginx
+              echo "<h1>Dashboard Application</h1><p>Welcome to the dashboard!</p>" > /var/www/html/index.html
+              systemctl enable nginx
+              systemctl start nginx
               EOF
 
   tags = {
