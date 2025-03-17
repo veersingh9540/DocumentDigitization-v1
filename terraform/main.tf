@@ -27,7 +27,7 @@ resource "aws_db_instance" "postgres" {
   allocated_storage    = 20
   storage_type         = "gp2"
   engine               = "postgres"
-  engine_version       = "13.4"
+  engine_version       = "13.7"
   instance_class       = "db.t3.micro"
   db_name              = var.db_name
   username             = var.db_username
@@ -182,11 +182,6 @@ resource "aws_iam_role" "lambda_role" {
 resource "aws_api_gateway_rest_api" "dashboard_api" {
   name        = "${var.project_name}-api-${var.environment}"
   description = "API Gateway for dashboard"
-
-  tags = {
-    Name        = "${var.project_name}-api"
-    Environment = var.environment
-  }
 }
 
 # API Gateway Resource

@@ -37,7 +37,7 @@ variable "db_password" {
 variable "ec2_ami" {
   description = "The AMI ID for the EC2 instance"
   type        = string
-  default     = "ami-0c55b159cbfafe1f0" # Ubuntu 20.04 LTS in us-east-1
+  default     = "ami-0c7217cdde317cfec" # Ubuntu 22.04 LTS in us-east-1 (updated 2023)
 }
 
 variable "ssh_key_name" {
