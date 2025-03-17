@@ -69,6 +69,14 @@ jobs:
         run: |
           cd terraform
           terraform plan -no-color -out=tfplan
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        # or even better, use the latest:
+        # uses: actions/upload-artifact@v4
+        with:
+          name: your-artifact-name
+          path: path/to/artifact
           
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v2
@@ -96,7 +104,7 @@ jobs:
           terraform_version: 1.5.7
         
       - name: Download Terraform Plan
-        uses: actions/upload-artifact@v3
+        uses: actions/download-artifact@v2
         with:
           name: terraform-plan
           path: terraform
