@@ -92,14 +92,52 @@ jobs:
           
           # Create document_processor.zip
           cd src/lambda/document_processor
-          pip install -r requirements.txt -t .
-          zip -r ../../../build/document_processor.zip .
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --no-cache-dir -r requirements.txt
+          pip install --no-cache-dir --no-deps -t . -r requirements.txt
+          
+          # Remove unnecessary files to reduce package size
+          find . -type d -name "__pycache__" -exec rm -rf {} +
+          find . -type f -name "*.pyc" -delete
+          find . -type f -name "*.pyo" -delete
+          find . -type f -name "*.pyd" -delete
+          
+          # Exclude test, development, and unnecessary directories
+          zip -r9 ../../../build/document_processor.zip . \
+              -x "venv/*" \
+              -x "*.git*" \
+              -x "tests/*" \
+              -x "test/*" \
+              -x "*.pyc" \
+              -x "__pycache__/*"
+          
+          deactivate
           cd ../../..
           
-          # Create dashboard_api.zip
+          # Repeat similar process for dashboard_api
           cd src/lambda/dashboard_api
-          pip install -r requirements.txt -t .
-          zip -r ../../../build/dashboard_api.zip .
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --no-cache-dir -r requirements.txt
+          pip install --no-cache-dir --no-deps -t . -r requirements.txt
+          
+          # Remove unnecessary files
+          find . -type d -name "__pycache__" -exec rm -rf {} +
+          find . -type f -name "*.pyc" -delete
+          find . -type f -name "*.pyo" -delete
+          find . -type f -name "*.pyd" -delete
+          
+          # Exclude test, development, and unnecessary directories
+          zip -r9 ../../../build/dashboard_api.zip . \
+              -x "venv/*" \
+              -x "*.git*" \
+              -x "tests/*" \
+              -x "test/*" \
+              -x "*.pyc" \
+              -x "__pycache__/*"
+          
+          deactivate
           cd ../../..
       
       - name: Build dashboard frontend
