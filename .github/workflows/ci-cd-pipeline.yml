@@ -112,7 +112,7 @@ jobs:
           cp -r src/dashboard/build/* build/dashboard/
       
       - name: Upload Lambda artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: lambda-packages
           path: |
@@ -120,7 +120,7 @@ jobs:
             build/dashboard_api.zip
       
       - name: Upload frontend artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dashboard-frontend
           path: build/dashboard/
