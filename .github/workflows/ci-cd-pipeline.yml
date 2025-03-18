@@ -215,7 +215,10 @@ jobs:
           cd terraform
           echo "S3_BUCKET=$(terraform output -raw s3_bucket_name)" >> $GITHUB_ENV
           echo "RDS_ENDPOINT=$(terraform output -raw rds_endpoint)" >> $GITHUB_ENV
-          echo "EC2_IP=$(terraform output -raw ec2_instance_public_ip)" >> $GITHUB_ENV
+          echo "EC2_IP=$(terraform output -raw ec2_instance_public_ip)" 
+          echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
+          echo "EC2 IP is: $EC2_IP"  # This will print the IP in the workflow logs
+
   
   deploy-lambdas:
     name: 'Deploy Lambda Functions'
