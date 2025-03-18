@@ -77,7 +77,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'  # Updated to latest LTS
+          node-version: '18'
       
       - name: Install Python dependencies
         run: |
@@ -104,12 +104,12 @@ jobs:
       
       - name: Build dashboard frontend
         run: |
-          cd src/dashboard/src
+          cd src/dashboard
           npm install
           npm run build
-          cd ../../..
+          cd ../..
           mkdir -p build/dashboard
-          cp -r src/dashboard/src/build/* build/dashboard/
+          cp -r src/dashboard/build/* build/dashboard/
       
       - name: Upload Lambda artifacts
         uses: actions/upload-artifact@v4
@@ -190,7 +190,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Download Lambda artifacts
-        uses: actions/download-artifact@v4  # Updated to v4
+        uses: actions/download-artifact@v4
         with:
           name: lambda-packages
           path: ./lambda-packages
@@ -253,7 +253,7 @@ jobs:
         uses: actions/checkout@v4
       
       - name: Download dashboard frontend
-        uses: actions/download-artifact@v4  # Updated to v4
+        uses: actions/download-artifact@v4
         with:
           name: dashboard-frontend
           path: ./dashboard-build
