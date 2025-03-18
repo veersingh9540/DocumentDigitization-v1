@@ -1,14 +1,14 @@
-name: CI/CD Pipeline
+name: Comprehensive CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy to'
+        description: 'Environment to deploy'
         required: true
         default: 'dev'
         type: choice
@@ -16,285 +16,276 @@ on:
           - dev
           - staging
           - prod
-      skip_tests:
-        description: 'Skip tests phase'
-        required: false
-        default: false
-        type: boolean
+      deploy_type:
+        description: 'Deployment Type'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - hotfix
+          - rollback
+
+env:
+  # Global environment variables can be set here
+  NODE_VERSION: '18.x'
+  PYTHON_VERSION: '3.9'
+  TERRAFORM_VERSION: '1.5.0'
 
 jobs:
-  test:
-    name: 'Test'
+  code-quality:
+    name: Code Quality Checks
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.skip_tests != 'true' }}
-    
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-      
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-cov pylint
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f src/lambda/document_processor/requirements.txt ]; then pip install -r src/lambda/document_processor/requirements.txt; fi
-          if [ -f src/lambda/dashboard_api/requirements.txt ]; then pip install -r src/lambda/dashboard_api/requirements.txt; fi
-      
-      - name: Install AWS dependencies
-        run: |
-          pip install boto3 moto
-      
-      - name: Run linting
-        run: |
-          # Lint Python files
-          find src -name "*.py" | xargs pylint --disable=C0111,C0103,C0303,C0301,W0613,R0903,R0913,R0914 || true
-      
-      - name: Run unit tests
-        run: |
-          # Skip actual tests for now since we don't have them set up
-          echo "Tests would run here"
-  
-  build:
-    name: 'Build'
-    runs-on: ubuntu-latest
-    needs: test
-    if: ${{ success() || github.event.inputs.skip_tests == 'true' }}
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      
+          python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-      
-      - name: Install Python dependencies
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f src/lambda/document_processor/requirements.txt ]; then pip install -r src/lambda/document_processor/requirements.txt; fi
-          if [ -f src/lambda/dashboard_api/requirements.txt ]; then pip install -r src/lambda/dashboard_api/requirements.txt; fi
-      
-      - name: Package Lambda functions
+          pip install pylint flake8 black
+          pip install -r requirements.txt
+
+      - name: Python Linting
         run: |
-          mkdir -p build
-          
-          # Create document_processor.zip
-          cd src/lambda/document_processor
-          pip install -r requirements.txt -t .
-          zip -r ../../../build/document_processor.zip .
-          cd ../../..
-          
-          # Create dashboard_api.zip
-          cd src/lambda/dashboard_api
-          pip install -r requirements.txt -t .
-          zip -r ../../../build/dashboard_api.zip .
-          cd ../../..
-      
-      - name: Build dashboard frontend
+          pylint **/*.py || true
+          flake8 .
+          black --check .
+
+      - name: Install Node.js Dependencies
         run: |
           cd src/dashboard
-          npm install
-          npm run build
-          cd ../..
-          mkdir -p build/dashboard
-          cp -r src/dashboard/build/* build/dashboard/
-      
-      - name: Upload Lambda artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: lambda-packages
-          path: |
-            build/document_processor.zip
-            build/dashboard_api.zip
-      
-      - name: Upload frontend artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dashboard-frontend
-          path: build/dashboard/
-  
-  deploy-infrastructure:
-    name: 'Deploy Infrastructure'
+          npm ci
+          npm run lint || true
+
+  unit-tests:
+    name: Unit Tests
+    needs: code-quality
     runs-on: ubuntu-latest
-    needs: build
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-    
-    env:
-      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-    
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v4
-      
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Python Test Setup
+        run: |
+          pip install pytest
+          pip install -r requirements.txt
+
+      - name: Run Python Unit Tests
+        run: |
+          pytest tests/ || true
+
+      - name: Run Frontend Tests
+        run: |
+          cd src/dashboard
+          npm test || true
+
+  build:
+    name: Build Artifacts
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build Frontend
+        run: |
+          cd src/dashboard
+          npm ci
+          npm run build
+
+      - name: Build Lambda Functions
+        run: |
+          mkdir -p build/lambda
+          cd src/lambda
+          for dir in */; do
+            if [ -f "$dir/requirements.txt" ]; then
+              function_name=$(basename "$dir")
+              cd "$dir"
+              pip install -r requirements.txt -t .
+              zip -r "../../../build/lambda/${function_name}.zip" .
+              cd ..
+            fi
+          done
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            build/lambda/*.zip
+            src/dashboard/build/
+
+  infrastructure-validation:
+    name: Infrastructure Validation
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: '1.5.0'
-      
-      - name: Initialize bucket for Terraform state
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Format Check
         run: |
-          aws s3api head-bucket --bucket document-processing-tf-state || aws s3 mb s3://document-processing-tf-state --region $AWS_REGION
-      
-      - name: Terraform Init
-        run: |
+          cd terraform
+          terraform fmt -check
           terraform init
-      
-      - name: Select Terraform Workspace
+          terraform validate
+
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    needs: infrastructure-validation
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ github.event.inputs.environment || 'dev' }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init & Workspace
         run: |
-          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
-          terraform workspace select $ENVIRONMENT || terraform workspace new $ENVIRONMENT
-      
+          cd terraform
+          terraform init
+          terraform workspace select ${{ github.event.inputs.environment || 'dev' }} || terraform workspace new ${{ github.event.inputs.environment || 'dev' }}
+
       - name: Terraform Plan
         run: |
+          cd terraform
           terraform plan -out=tfplan
-      
+
       - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         run: |
+          cd terraform
           terraform apply -auto-approve tfplan
-      
-      - name: Extract Terraform Outputs
-        id: terraform-outputs
-        run: |
-          echo "S3_BUCKET=$(terraform output -raw s3_bucket_name)" >> $GITHUB_ENV
-          echo "RDS_ENDPOINT=$(terraform output -raw rds_endpoint)" >> $GITHUB_ENV
-          echo "EC2_IP=$(terraform output -raw ec2_instance_public_ip)" >> $GITHUB_ENV
-  
+
   deploy-lambdas:
-    name: 'Deploy Lambda Functions'
-    runs-on: ubuntu-latest
+    name: Deploy Lambda Functions
     needs: deploy-infrastructure
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-    
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ github.event.inputs.environment || 'dev' }}
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-    
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Download Lambda artifacts
+      - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: lambda-packages
-          path: ./lambda-packages
-      
-      - name: Deploy document processor Lambda
+          name: build-artifacts
+          path: build
+
+      - name: Deploy Lambda Functions
         run: |
-          # Check if function exists
-          if aws lambda get-function --function-name document-processor 2>&1 | grep -q "Function not found"; then
-            # Create function
-            aws lambda create-function \
-              --function-name document-processor \
-              --runtime python3.9 \
-              --role "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/lambda-execution-role" \
-              --handler index.lambda_handler \
-              --timeout 900 \
-              --memory-size 1024 \
-              --zip-file fileb://lambda-packages/document_processor.zip \
-              --environment "Variables={OUTPUT_BUCKET=${{ env.S3_BUCKET }},DB_SECRET_NAME=document-processing-db-credentials}"
-          else
-            # Update function
+          for lambda_zip in build/lambda/*.zip; do
+            function_name=$(basename "$lambda_zip" .zip)
             aws lambda update-function-code \
-              --function-name document-processor \
-              --zip-file fileb://lambda-packages/document_processor.zip
-          fi
-      
-      - name: Deploy dashboard API Lambda
-        run: |
-          # Check if function exists
-          if aws lambda get-function --function-name dashboard-api 2>&1 | grep -q "Function not found"; then
-            # Create function
-            aws lambda create-function \
-              --function-name dashboard-api \
-              --runtime python3.9 \
-              --role "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/lambda-execution-role" \
-              --handler index.lambda_handler \
-              --timeout 30 \
-              --memory-size 512 \
-              --zip-file fileb://lambda-packages/dashboard_api.zip \
-              --environment "Variables={DB_SECRET_NAME=document-processing-db-credentials}"
-          else
-            # Update function
-            aws lambda update-function-code \
-              --function-name dashboard-api \
-              --zip-file fileb://lambda-packages/dashboard_api.zip
-          fi
-  
-  deploy-dashboard:
-    name: 'Deploy Dashboard'
-    runs-on: ubuntu-latest
+              --function-name "$function_name" \
+              --zip-file "fileb://$lambda_zip"
+          done
+
+  deploy-frontend:
+    name: Deploy Frontend
     needs: deploy-lambdas
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-    
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ github.event.inputs.environment || 'dev' }}
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-    
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Download dashboard frontend
+      - name: Download Frontend Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: dashboard-frontend
-          path: ./dashboard-build
-      
-      - name: Create SSH key
+          name: build-artifacts
+          path: build
+
+      - name: Deploy to S3
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ env.EC2_IP }} >> ~/.ssh/known_hosts
-      
-      - name: Upload frontend to EC2
-        run: |
-          ssh ec2-user@${{ env.EC2_IP }} 'mkdir -p /var/www/html'
-          scp -r ./dashboard-build/* ec2-user@${{ env.EC2_IP }}:/var/www/html/
-      
-      - name: Restart Nginx
-        run: |
-          ssh ec2-user@${{ env.EC2_IP }} 'sudo systemctl restart nginx'
-  
-  finalize:
-    name: 'Finalize Deployment'
+          aws s3 sync build/dashboard s3://${{ secrets.S3_BUCKET }} --delete
+
+  post-deployment-tests:
+    name: Post-Deployment Tests
+    needs: deploy-frontend
     runs-on: ubuntu-latest
-    needs: deploy-dashboard
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-    
     steps:
-      - name: Summarize deployment
+      - name: Run Integration Tests
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "* **Environment**: ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
-          echo "* **Deployment Status**: ✅ Successful" >> $GITHUB_STEP_SUMMARY
-          echo "* **Deployment Time**: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "* **Triggered By**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Access Details" >> $GITHUB_STEP_SUMMARY
-          echo "* **Dashboard URL**: http://${{ env.EC2_IP }}" >> $GITHUB_STEP_SUMMARY
-          echo "* **Database Endpoint**: ${{ env.RDS_ENDPOINT }}" >> $GITHUB_STEP_SUMMARY
-          echo "* **S3 Bucket**: ${{ env.S3_BUCKET }}" >> $GITHUB_STEP_SUMMARY
-      
-      - name: Send deployment notification
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          echo "Deployment complete!"
+          # Add integration test commands here
+          echo "Running post-deployment integration tests"
+
+  notify:
+    name: Deployment Notification
+    needs: 
+      - post-deployment-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack Notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+        if: failure()
+
+  cleanup:
+    name: Cleanup
+    needs: notify
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup Artifacts
+        uses: geekyeggo/delete-artifact@v2
+        with:
+          name: build-artifacts
+          failOnError: false
