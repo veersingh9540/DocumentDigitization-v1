@@ -166,9 +166,18 @@ jobs:
         id: terraform-outputs
         run: |
           cd infrastructure/terraform
+          EC2_IP=$(terraform output -raw ec2_instance_public_ip)
+          echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
+          echo "EC2 IP is: $EC2_IP" 
           echo "S3_BUCKET=$(terraform output -raw s3_bucket_name)" >> $GITHUB_ENV
           echo "API_URL=$(terraform output -raw api_gateway_url)" >> $GITHUB_ENV
           echo "EC2_IP=$(terraform output -raw ec2_instance_public_ip)" >> $GITHUB_ENV
+      - name: Set outputs
+        id: set-outputs
+        run: |
+          cd infrastructure/terraform
+          echo "::set-output name=ec2_ip::$(terraform output -raw ec2_instance_public_ip)"
+
   
   deploy-lambda:
     name: 'Deploy Lambda Functions'
@@ -211,7 +220,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-    
+      EC2_IP: ${{needs.deploy-infrastructure.outputs.ec2_ip}}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -228,6 +237,7 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ env.EC2_IP }} >> ~/.ssh/known_hosts
+        shell: /usr/bin/bash -e {0}
       
       - name: Upload frontend to EC2
         run: |
