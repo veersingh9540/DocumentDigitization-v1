@@ -233,23 +233,21 @@ jobs:
           name: dashboard-frontend
           path: ./dashboard-build
       
-      - name: Create SSH key
+      - name: SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          if [ -n "${{ env.EC2_IP }}" ]; then
-            ssh-keyscan -H ${{ env.EC2_IP }} >> ~/.ssh/known_hosts
-          else
-            echo "EC2_IP is not set or empty. Skipping ssh-keyscan."
-            exit 1
-          fi
+          ssh-keyscan -H ${{ secrets.EC2_IP }} >> ~/.ssh/known_hosts
         
       
       - name: Upload frontend to EC2
         run: |
-          scp -r ./dashboard-build/* ec2-user@${{ env.EC2_IP }}:/var/www/html/
+          scp -i ~/.ssh/id_rsa -r ./dashboard-build/* ec2-user@${{ secrets.EC2_IP }}:/var/www/html/
+        env: 
+          EC2_IP: ${{secrets.EC2_IP}}
       
+
       - name: Restart Nginx
         run: |
           ssh ec2-user@${{ env.EC2_IP }} 'sudo systemctl restart nginx'
