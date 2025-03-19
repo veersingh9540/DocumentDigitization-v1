@@ -236,14 +236,16 @@ jobs:
       - name: SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/private_key.pem
+          chmod 600 ~/.ssh/private_key.pem
+          eval $(ssh-agent -s)
+          ssh-add ~/.ssh/private_key.pem
           ssh-keyscan -H ${{ secrets.EC2_IP }} >> ~/.ssh/known_hosts
         
       
       - name: Upload frontend to EC2
         run: |
-          scp -i ~/.ssh/id_rsa -r ./dashboard-build/* ec2-user@${{ secrets.EC2_IP }}:/var/www/html/
+          scp -i ~/.ssh/private_key.pem -o StrictHostKeyChecking=no -r ./dashboard-build/* ec2-user@${{ secrets.EC2_IP }}:/var/www/html/
         env: 
           EC2_IP: ${{secrets.EC2_IP}}
       
