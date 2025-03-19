@@ -3,7 +3,10 @@ import os
 import sys
 import json
 from unittest.mock import patch, MagicMock
+import boto3
 
+os.environ['AWS_REGION'] = 'us-east-1'
+boto3.setup_default_session(region_name='us-east-1')
 # Add src directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '../src/lambda/dashboard_api'))
 
