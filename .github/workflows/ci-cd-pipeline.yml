@@ -45,10 +45,6 @@ jobs:
           if [ -f src/lambda/document_processor/requirements.txt ]; then pip install -r src/lambda/document_processor/requirements.txt; fi
           if [ -f src/lambda/dashboard_api/requirements.txt ]; then pip install -r src/lambda/dashboard_api/requirements.txt; fi
       
-      - name: Install AWS dependencies
-        run: |
-          pip install boto3 moto
-      
       - name: Run linting
         run: |
           # Lint Python files
@@ -56,8 +52,7 @@ jobs:
       
       - name: Run unit tests
         run: |
-          # Skip actual tests for now since we don't have them set up
-          echo "Tests would run here"
+          pytest tests/
   
   build:
     name: 'Build'
@@ -92,52 +87,12 @@ jobs:
           
           # Create document_processor.zip
           cd src/lambda/document_processor
-          python3 -m venv venv
-          source venv/bin/activate
-          pip install --no-cache-dir -r requirements.txt
-          pip install --no-cache-dir --no-deps -t . -r requirements.txt
-          
-          # Remove unnecessary files to reduce package size
-          find . -type d -name "__pycache__" -exec rm -rf {} +
-          find . -type f -name "*.pyc" -delete
-          find . -type f -name "*.pyo" -delete
-          find . -type f -name "*.pyd" -delete
-          
-          # Exclude test, development, and unnecessary directories
-          zip -r9 ../../../build/document_processor.zip . \
-              -x "venv/*" \
-              -x "*.git*" \
-              -x "tests/*" \
-              -x "test/*" \
-              -x "*.pyc" \
-              -x "__pycache__/*"
-          
-          deactivate
+          zip -r ../../../build/document_processor.zip .
           cd ../../..
           
-          # Repeat similar process for dashboard_api
+          # Create dashboard_api.zip
           cd src/lambda/dashboard_api
-          python3 -m venv venv
-          source venv/bin/activate
-          pip install --no-cache-dir -r requirements.txt
-          pip install --no-cache-dir --no-deps -t . -r requirements.txt
-          
-          # Remove unnecessary files
-          find . -type d -name "__pycache__" -exec rm -rf {} +
-          find . -type f -name "*.pyc" -delete
-          find . -type f -name "*.pyo" -delete
-          find . -type f -name "*.pyd" -delete
-          
-          # Exclude test, development, and unnecessary directories
-          zip -r9 ../../../build/dashboard_api.zip . \
-              -x "venv/*" \
-              -x "*.git*" \
-              -x "tests/*" \
-              -x "test/*" \
-              -x "*.pyc" \
-              -x "__pycache__/*"
-          
-          deactivate
+          zip -r ../../../build/dashboard_api.zip .
           cd ../../..
       
       - name: Build dashboard frontend
@@ -145,9 +100,6 @@ jobs:
           cd src/dashboard
           npm install
           npm run build
-          cd ../..
-          mkdir -p build/dashboard
-          cp -r src/dashboard/build/* build/dashboard/
       
       - name: Upload Lambda artifacts
         uses: actions/upload-artifact@v4
@@ -161,7 +113,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dashboard-frontend
-          path: build/dashboard/
+          path: src/dashboard/build/
   
   deploy-infrastructure:
     name: 'Deploy Infrastructure'
@@ -184,43 +136,36 @@ jobs:
         with:
           terraform_version: '1.5.0'
       
-      - name: Initialize bucket for Terraform state
-        run: |
-          aws s3api head-bucket --bucket document-processing-tf-state || aws s3 mb s3://document-processing-tf-state --region $AWS_REGION
-      
       - name: Terraform Init
         run: |
-          cd terraform
+          cd infrastructure/terraform
           terraform init
       
       - name: Select Terraform Workspace
         run: |
-          cd terraform
+          cd infrastructure/terraform
           ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
           terraform workspace select $ENVIRONMENT || terraform workspace new $ENVIRONMENT
       
       - name: Terraform Plan
         run: |
-          cd terraform
+          cd infrastructure/terraform
           terraform plan -out=tfplan
       
       - name: Terraform Apply
         run: |
-          cd terraform
+          cd infrastructure/terraform
           terraform apply -auto-approve tfplan
       
       - name: Extract Terraform Outputs
         id: terraform-outputs
         run: |
-          cd terraform
+          cd infrastructure/terraform
           echo "S3_BUCKET=$(terraform output -raw s3_bucket_name)" >> $GITHUB_ENV
-          echo "RDS_ENDPOINT=$(terraform output -raw rds_endpoint)" >> $GITHUB_ENV
-          echo "EC2_IP=$(terraform output -raw ec2_instance_public_ip)" 
-          echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
-          echo "EC2 IP is: $EC2_IP"  # This will print the IP in the workflow logs
-
+          echo "API_URL=$(terraform output -raw api_gateway_url)" >> $GITHUB_ENV
+          echo "EC2_IP=$(terraform output -raw ec2_instance_public_ip)" >> $GITHUB_ENV
   
-  deploy-lambdas:
+  deploy-lambda:
     name: 'Deploy Lambda Functions'
     runs-on: ubuntu-latest
     needs: deploy-infrastructure
@@ -241,52 +186,20 @@ jobs:
           name: lambda-packages
           path: ./lambda-packages
       
-      - name: Deploy document processor Lambda
+      - name: Update Lambda Functions
         run: |
-          # Check if function exists
-          if aws lambda get-function --function-name document-processor 2>&1 | grep -q "Function not found"; then
-            # Create function
-            aws lambda create-function \
-              --function-name document-processor \
-              --runtime python3.9 \
-              --role "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/lambda-execution-role" \
-              --handler index.lambda_handler \
-              --timeout 900 \
-              --memory-size 1024 \
-              --zip-file fileb://lambda-packages/document_processor.zip \
-              --environment "Variables={OUTPUT_BUCKET=${{ env.S3_BUCKET }},DB_SECRET_NAME=document-processing-db-credentials}"
-          else
-            # Update function
-            aws lambda update-function-code \
-              --function-name document-processor \
-              --zip-file fileb://lambda-packages/document_processor.zip
-          fi
-      
-      - name: Deploy dashboard API Lambda
-        run: |
-          # Check if function exists
-          if aws lambda get-function --function-name dashboard-api 2>&1 | grep -q "Function not found"; then
-            # Create function
-            aws lambda create-function \
-              --function-name dashboard-api \
-              --runtime python3.9 \
-              --role "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/lambda-execution-role" \
-              --handler index.lambda_handler \
-              --timeout 30 \
-              --memory-size 512 \
-              --zip-file fileb://lambda-packages/dashboard_api.zip \
-              --environment "Variables={DB_SECRET_NAME=document-processing-db-credentials}"
-          else
-            # Update function
-            aws lambda update-function-code \
-              --function-name dashboard-api \
-              --zip-file fileb://lambda-packages/dashboard_api.zip
-          fi
+          aws lambda update-function-code \
+            --function-name document-processing-document-processor-dev \
+            --zip-file fileb://lambda-packages/document_processor.zip
+          
+          aws lambda update-function-code \
+            --function-name document-processing-dashboard-api-dev \
+            --zip-file fileb://lambda-packages/dashboard_api.zip
   
-  deploy-dashboard:
-    name: 'Deploy Dashboard'
+  deploy-frontend:
+    name: 'Deploy Frontend'
     runs-on: ubuntu-latest
-    needs: deploy-lambdas
+    needs: [deploy-infrastructure, deploy-lambda]
     environment: ${{ github.event.inputs.environment || 'dev' }}
     
     env:
@@ -298,7 +211,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Download dashboard frontend
+      - name: Download frontend artifacts
         uses: actions/download-artifact@v4
         with:
           name: dashboard-frontend
@@ -313,7 +226,6 @@ jobs:
       
       - name: Upload frontend to EC2
         run: |
-          ssh ec2-user@${{ env.EC2_IP }} 'mkdir -p /var/www/html'
           scp -r ./dashboard-build/* ec2-user@${{ env.EC2_IP }}:/var/www/html/
       
       - name: Restart Nginx
@@ -323,7 +235,7 @@ jobs:
   finalize:
     name: 'Finalize Deployment'
     runs-on: ubuntu-latest
-    needs: deploy-dashboard
+    needs: deploy-frontend
     environment: ${{ github.event.inputs.environment || 'dev' }}
     
     steps:
@@ -333,14 +245,8 @@ jobs:
           echo "* **Environment**: ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
           echo "* **Deployment Status**: ✅ Successful" >> $GITHUB_STEP_SUMMARY
           echo "* **Deployment Time**: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "* **Triggered By**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Access Details" >> $GITHUB_STEP_SUMMARY
           echo "* **Dashboard URL**: http://${{ env.EC2_IP }}" >> $GITHUB_STEP_SUMMARY
-          echo "* **Database Endpoint**: ${{ env.RDS_ENDPOINT }}" >> $GITHUB_STEP_SUMMARY
+          echo "* **API URL**: ${{ env.API_URL }}" >> $GITHUB_STEP_SUMMARY
           echo "* **S3 Bucket**: ${{ env.S3_BUCKET }}" >> $GITHUB_STEP_SUMMARY
-      
-      - name: Send deployment notification
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          echo "Deployment complete!"

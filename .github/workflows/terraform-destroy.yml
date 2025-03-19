@@ -59,17 +59,17 @@ jobs:
           
       - name: Terraform Init
         run: |
-          cd terraform
+          cd infrastructure/terraform
           terraform init
         
       - name: Select Workspace
         run: |
-          cd terraform
+          cd infrastructure/terraform
           terraform workspace select ${{ github.event.inputs.environment }} || terraform workspace new ${{ github.event.inputs.environment }}
         
       - name: Terraform Plan Destroy
         run: |
-          cd terraform
+          cd infrastructure/terraform
           terraform plan -destroy -out=tfdestroyplan
         
       - name: Confirm Destruction
@@ -79,12 +79,12 @@ jobs:
           echo "Review the plan output above to ensure this is what you want."
           echo "This action will destroy all resources in the environment and cannot be undone."
           echo ""
-          echo "Waiting 30 seconds before proceeding with destruction..."
-          sleep 30
+          echo "Waiting 15 seconds before proceeding with destruction..."
+          sleep 15
         
       - name: Terraform Destroy
         run: |
-          cd terraform
+          cd infrastructure/terraform
           terraform apply -auto-approve tfdestroyplan
         
       - name: Notify Destruction Complete
@@ -96,4 +96,3 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Warning" >> $GITHUB_STEP_SUMMARY
           echo "* All resources in the ${{ github.event.inputs.environment }} environment have been destroyed." >> $GITHUB_STEP_SUMMARY
-          echo "* To recreate this environment, run the CI/CD Pipeline workflow." >> $GITHUB_STEP_SUMMARY
